@@ -55,7 +55,7 @@ const Navbar = () => {
     const [error, setError] = useState<string | null>(null);
     const [isThinking, setIsThinking] = useState(false);
 
-    // NEW: Track whether to auto-listen after speaking (disable when user stops speech)
+    // Track whether to auto-listen after speaking (disable when user stops speech)
     const [autoListen, setAutoListen] = useState(true);
 
     const router = useRouter();
@@ -141,19 +141,35 @@ const Navbar = () => {
         };
     }, []);
 
-    // -- Modal panel: Update position under the AI button --
+    // -- RESPONSIVE MODAL POSITIONING --
+    // This effect now handles both desktop positioning and mobile centering,
+    // and it updates on window resize.
     useEffect(() => {
-        if (isAssistantOpen && aiBtnRef.current) {
-            const rect = aiBtnRef.current.getBoundingClientRect();
-            setAssistantModalStyle({
-                position: "fixed",
-                top: rect.bottom + 14,
-                right: window.innerWidth - rect.right,
-                zIndex: 60,
-                minWidth: 340,
-                maxWidth: 420,
-            });
-        }
+        if (!isAssistantOpen) return;
+
+        const handlePositionUpdate = () => {
+            if (aiBtnRef.current) {
+                // Mobile view (< 768px)
+                if (window.innerWidth < 768) {
+                    setAssistantModalStyle({}); // Reset inline styles to let Tailwind's centering classes work
+                }
+                // Desktop view (>= 768px)
+                else {
+                    const rect = aiBtnRef.current.getBoundingClientRect();
+                    setAssistantModalStyle({
+                        top: rect.bottom + 14,
+                        right: window.innerWidth - rect.right,
+                    });
+                }
+            }
+        };
+
+        handlePositionUpdate(); // Set initial position
+        window.addEventListener('resize', handlePositionUpdate);
+
+        return () => {
+            window.removeEventListener('resize', handlePositionUpdate);
+        };
     }, [isAssistantOpen]);
 
     // -- Websocket connect when open --
@@ -181,7 +197,6 @@ const Navbar = () => {
                     responseText = String(event.data);
                 }
 
-                // SPEECH: Read out the response
                 if ('speechSynthesis' in window && responseText.trim()) {
                     window.speechSynthesis.cancel();
                     const voices = window.speechSynthesis.getVoices();
@@ -192,7 +207,6 @@ const Navbar = () => {
                     if (rishiVoice) {
                         utterance.voice = rishiVoice;
                     } else {
-                        // fallback if Rishi isn't found
                         utterance.voice = voices[0];
                     }
                     utterance.rate = 1.2;
@@ -200,16 +214,13 @@ const Navbar = () => {
                     utterance.volume = 1;
 
                     utterance.onend = () => {
-                        // Only restart listening if panel is still open and user has NOT stopped auto listening
                         if (isAssistantOpen && autoListen && recognitionRef.current) {
                             setTimeout(() => {
                                 try { recognitionRef.current?.start(); } catch { }
                             }, 400);
                         }
                     };
-
-                    utterance.onerror = () => {/* optional: set error if desired */ };
-
+                    utterance.onerror = () => { /* optional: set error if desired */ };
                     window.speechSynthesis.speak(utterance);
                 }
             };
@@ -227,14 +238,13 @@ const Navbar = () => {
             setError('Failed to connect to assistant service');
         }
         return cleanup;
-        // Note: autoListen is purposefully NOT in deps to avoid effect restart-loop
         // eslint-disable-next-line
     }, [isAssistantOpen, cleanup]);
 
-    // -- NEW: When opening AI Assistant, autostart listening
+    // -- When opening AI Assistant, autostart listening --
     useEffect(() => {
         if (isAssistantOpen && recognitionRef.current) {
-            setAutoListen(true); // always auto-listen on open
+            setAutoListen(true);
             setTimeout(() => {
                 try { recognitionRef.current?.start(); } catch { }
             }, 300);
@@ -246,10 +256,11 @@ const Navbar = () => {
         setIsAssistantOpen(!isAssistantOpen);
         setTranscript('');
         setError(null);
-        setAutoListen(true); // always reset to auto-listen on open
+        setAutoListen(true);
         window.speechSynthesis.cancel();
         setTimeout(() => setTranscript(''), 300);
     };
+
     const handleMenuClick = (url: string) => {
         router.push(url);
         setIsMenuOpen(false);
@@ -262,14 +273,12 @@ const Navbar = () => {
         try { recognitionRef.current?.start(); } catch (e) { setError('Could not start mic.'); }
     };
     const handleMicStop = () => {
-        setAutoListen(false); // disables further autolisten after speech
+        setAutoListen(false);
         try { recognitionRef.current?.stop(); setIsListening(false); } catch { }
     };
     const handleSpeechStop = () => {
         window.speechSynthesis.cancel();
-        // Disable auto-relisten after speech
         setAutoListen(false);
-        // Also stop mic if active
         try { recognitionRef.current?.stop(); } catch { }
         setIsListening(false);
     };
@@ -313,11 +322,18 @@ const Navbar = () => {
                 </button>
             </div>
 
-            {/* AI Assistant Panel (top right, under AI button) */}
+            {/* AI Assistant Panel (Responsive) */}
             {isAssistantOpen && (
                 <div
                     style={assistantModalStyle}
-                    className="bg-gray-900/95 border border-gray-700 text-white p-6 rounded-xl shadow-2xl transition-all"
+                    className={cn(
+                        // Base styles for panel
+                        "fixed bg-gray-900/95 border border-gray-700 text-white p-6 rounded-xl shadow-2xl transition-all z-[60]",
+                        // Mobile-first styles: Centered Modal
+                        "top-[11rem] left-1/2 w-[90vw] max-w-[420px] -translate-x-1/2 -translate-y-1/2",
+                        // Desktop (md) overrides: Positioned via inline 'style' prop
+                        "md:top-auto md:left-auto md:w-auto md:min-w-[340px] md:translate-x-0 md:translate-y-0"
+                    )}
                     onClick={e => e.stopPropagation()}
                 >
                     {/* Close button */}
@@ -349,7 +365,7 @@ const Navbar = () => {
                                     isConnected ? 'bg-green-500' : 'bg-red-500'
                                 )}></div>
                                 <span className="text-xs text-gray-400">
-                                    {isConnected ? (isThinking ? <span className="animate-pulse">Thinking<span className="animate-bounce">...</span></span>:"Connected") : 'Disconnected'}
+                                    {isConnected ? (isThinking ? <span className="animate-pulse">Thinking<span className="animate-bounce">...</span></span> : "Connected") : 'Disconnected'}
                                 </span>
                             </div>
                             {/* Transcript/Status */}
